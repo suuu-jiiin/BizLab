@@ -26,7 +26,7 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 result_json_path = os.path.join(base_dir, 'data', 'survey_result.json')
 outline_json_path = os.path.join(base_dir, 'data', 'survey_outline.json')
 survey_path = os.path.join(base_dir, 'data', 'survey.json')
-cross_result_path = os.path.join(base_dir, 'data', 'cross_result.txt')
+cross_result_path = os.path.join(base_dir, 'data', 'ESG.test_cross.json')
 img_folder = os.path.join(base_dir, 'img', 'test')
 cross_img_folder = os.path.join(base_dir, 'img', 'test_cross')
 
@@ -106,7 +106,7 @@ SNS 채널 콘텐츠 만족도는 매우 만족 50.8%(827명), 만족 41.6%(677�
 이는 콘텐츠 기획이나 운영 방향이 단순한 ‘호감’ 수준을 넘어서 사용자 니즈에 정밀하게 부합하고 있을 가능성을 시사합니다.
 '''
 
-## (4) 교차 분석 문항 쌍 추천 템플릿
+## (4) 교차 분석 질문 쌍 추천 템플릿
 cross_prompt_template = '''
 너는 ERG 이론에 따른 대학생의 SNS 사용 동기와 SNS 사용 만족도간의 관계를 분석하고자 하는 AI야.
 
@@ -223,7 +223,7 @@ def get_analysis(img_idx, survey_json):
     )
     return chain.invoke({})
 
-### (4) 교차 분석 문항 쌍 추천
+### (4) 교차 분석 질문 쌍 추천
 cross_prompt = ChatPromptTemplate.from_template(cross_prompt_template)
 
 def get_cross_tab_questions(survey_json):
@@ -258,7 +258,7 @@ def get_cross_analy_questions(cross_result_text):
 
 
 ## 5.2 해석 결과 받기
-### (3) 단일 문항 해석
+### (3) 단일 질문 해석
 survey_content = []
 
 for idx in range(len(survey_json)):

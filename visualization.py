@@ -143,9 +143,11 @@ def bar_plot(json_results, question_id, file_name, design=None):
     resp_cnt=json_results[question_id]['답변'].values() #response count
     title=json_results[question_id]['질문 내용']
 
-    colors = sns.color_palette('ocean',len(resp_cat)) ## 색상 지정
+    colors = sns.color_palette('Pastel1',len(resp_cat)) ## 색상 지정
+    # https://matplotlib.org/3.1.1/gallery/color/colormap_reference.html  -> 팔레트 종류 선택 가능
 
     fig,ax=plt.subplots(figsize=(8, 6))
+    #fig.set_size_inches(8, 6)
     bar_container=ax.bar(resp_cat, resp_cnt, color=colors) #'#457B9D' # '#E76F51'
     ax.set(title=title, ylim=(0,max(resp_cnt)+5))
     if len(title)>=30:
@@ -155,9 +157,10 @@ def bar_plot(json_results, question_id, file_name, design=None):
     ax.set_title(f'<질문{question_id+1}. {title}>', fontdict= {'fontsize': fontsize, \
                                                  'fontweight': 'bold',\
                                                   'color': 'black'}) # fontweight='bold', fontstyle='normal', )
-
-    ax.bar_label(bar_container,fmt='{:,.0f}')
     
+    percentages = [f'{(count / sum(resp_cnt) * 100):.1f}%' for count in resp_cnt]
+    ax.bar_label(bar_container, labels=percentages)
+        
     fig.tight_layout()
     
     # 이미지 저장    
@@ -175,7 +178,7 @@ def barh_plot(json_results, question_id, file_name, design=None):
     resp_cat=json_results[question_id]['답변'].keys() #response category
     resp_cnt=json_results[question_id]['답변'].values() #response count
     title=json_results[question_id]['질문 내용']
-    colors = sns.color_palette('ocean',len(resp_cat)) ## 색상 지정
+    colors = sns.color_palette('Pastel1',len(resp_cat)) ## 색상 지정
     # https://matplotlib.org/3.1.1/gallery/color/colormap_reference.html  -> 팔레트 종류 선택 가능
     fig,ax=plt.subplots(figsize=(8, 6))
     #fig.set_size_inches(8, 6)
@@ -188,7 +191,13 @@ def barh_plot(json_results, question_id, file_name, design=None):
     ax.set_title(f'<질문{question_id+1}. {title}>', fontdict= {'fontsize': fontsize, \
                                                  'fontweight': 'bold',\
                                                   'color': 'black'}) # fontweight='bold', fontstyle='normal', )
-    ax.bar_label(bar_container,fmt='{:,.0f}')
+
+    #bar_label for counts
+    #ax.bar_label(bar_container,fmt='{:,.0f}')
+
+    #bar_label for percentage
+    percentages = [f'{(count / sum(resp_cnt) * 100):.1f}%' for count in resp_cnt]
+    ax.bar_label(bar_container, labels=percentages)
     
     fig.tight_layout()
     
@@ -206,18 +215,15 @@ def pie_plot(json_results, question_id,  file_name, design=None):
     resp_cat=json_results[question_id]['답변'].keys() #response category
     resp_cnt=json_results[question_id]['답변'].values() #response count
     title=json_results[question_id]['질문 내용']
-    
-    if design==None:
-        pass
-      
-    colors = sns.color_palette('ocean',len(resp_cat)) ## 색상 지정
+
+    colors = sns.color_palette('Pastel1',len(resp_cat)) ## 색상 지정
     # https://matplotlib.org/3.1.1/gallery/color/colormap_reference.html  -> 팔레트 종류 선택 가능
 
-    #explode = (0, 0, 0, 0, 0.1)  # only "explode" the 2nd slice
+
     explode = [0.1 if i == len(resp_cat)-1  else 0 for i in range(len(resp_cat))]
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.pie(resp_cnt, labels=resp_cat, explode=explode, autopct='%1.1f%%', shadow=True, startangle=90, colors=colors)
-    #ax.pie(resp_cnt, labels=label, autopct='%1.1f%%', pctdistance=1.25, labeldistance=.6, shadow=True, startangle=90)
+
     if len(title)>=30:
       fontsize='12'
     else:
@@ -226,6 +232,8 @@ def pie_plot(json_results, question_id,  file_name, design=None):
                                                  'fontweight': 'bold',\
                                                   'color': 'black'}) # fontweight='bold', fontstyle='normal', )
     ax.legend()
+
+    plt.savefig(f'{file_name}_{question_id:02d}.png')
     
     fig.tight_layout()
     
