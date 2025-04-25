@@ -13,6 +13,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from docx import Document
 from docx.shared import Inches, Pt 
+from docx.oxml.ns import qn
 
 
 # API 키 입력
@@ -20,68 +21,79 @@ api_key = getpass("OpenAI API 키를 입력하세요: ")
 
 os.environ['OPENAI_API_KEY'] = api_key
 
-# 파일 경로 설정
-#csv_path = r"C:\Users\toozi\OneDrive\문서\GitHub\BizLab\data\survey_data.csv"
-outline_json_path = r"C:\Users\toozi\OneDrive\문서\GitHub\BizLab\data\survey_outline.json"
-result_json_path = r"C:\Users\toozi\OneDrive\문서\GitHub\BizLab\data\survey_result.json"
-img_folder = r"C:\Users\toozi\OneDrive\문서\GitHub\BizLab\img\test"
+# 현재 파일의 경로를 기준으로 상대경로 설정
+base_dir = os.path.dirname(os.path.abspath(__file__))
+result_json_path = os.path.join(base_dir, 'data', 'survey_result.json')
+outline_json_path = os.path.join(base_dir, 'data', 'survey_outline.json')
+survey_path = os.path.join(base_dir, 'data', 'survey.json')
+cross_result_path = os.path.join(base_dir, 'data', 'cross_result.txt')
+img_folder = os.path.join(base_dir, 'img', 'test')
+cross_img_folder = os.path.join(base_dir, 'img', 'test_cross')
 
 # 1. 데이터 로딩
-#survey_csv = pd.read_csv(csv_path, encoding='utf-8')  
 with open(result_json_path, 'r', encoding='utf-8-sig') as f:
     survey_json = json.load(f)
 
 with open(outline_json_path, "r", encoding="utf-8") as f:
     outline_data = json.load(f)
     
-cross_result_text = '''
-3:{"질문 내용": "삶의 행복에 사회적 관계망(SNS)은 도움이 된다고 생각한다.",
-        "질문 유형": "객관식 질문"
-        "카테고리": 1,2,3,4,5}
-7:{ "질문 내용": "나는 사회적 관계망(SNS)의 사용에 만족도가 높다.",
-        "질문 유형": "객관식 질문"
-        "카테고리": 1,2,3,4,5}
-교차분석 결과: {3번 1을 고른 사람 중: {7번에 1을 고른 사람의 비율이 19%,
-                 7번에 2을 고른 사람의 비율이 31%,
-                 7번에 3을 고른 사람의 비율이 31%,
-                 7번에 4을 고른 사람의 비율이 12%,
-                 7번에 5을 고른 사람의 비율이 6% },
-
-                3번 2을 고른 사람 중: {7번에 1을 고른 사람의 비욜이 0%,
-                 7번에 2을 고른 사람의 비율이 33%,
-                 7번에 3을 고른 사람의 비율이 50%,
-                 7번에 4을 고른 사람의 비율이 17%,
-                 7번에 5을 고른 사람의 비율이 0%},
-
-                3번 3을 고른 사람 중:{7번에 1을 고른 사람의 비욜이 0%,
-                 7번에 2을 고른 사람의 비율이 5%,
-                 7번에 3을 고른 사람의 비율이 31%,
-                 7번에 4을 고른 사람의 비율이 60%,
-                 7번에 5을 고른 사람의 비율이 5%},
-
-                3번 4을 고른 사람 중 :{ 7번에 1을 고른 사람의 비욜이 2%,
-                 7번에 2을 고른 사람의 비율이 2%,
-                 7번에 3을 고른 사람의 비율이 29%,
-                 7번에 4을 고른 사람의 비율이 51%,
-                 7번에 5을 고른 사람의 비율이 16%},
-
-               3번 5을 고른 사람 중 { 7번에 1을 고른 사람의 비욜이 6%,
-                 7번에 2을 고른 사람의 비율이 0%,
-                 7번에 3을 고른 사람의 비율이 11%,
-                 7번에 4을 고른 사람의 비율이 39%,
-                 7번에 5을 고른 사람의 비율이 44%}}
-
-'''
+with open(survey_path, "r", encoding="utf-8") as f:
+    survey_data = json.load(f)
+    
+with open(cross_result_path, 'r', encoding='utf-8') as f:
+    cross_result_text = f.read()
 
 # 2. 이미지 img_path 리스트로 설정
-
 img_path = [os.path.join(img_folder, fname) 
             for fname in sorted(os.listdir(img_folder)) 
             if fname.endswith(".png")]
 
 # 3. Prompt
-## (1) 단일 질문 분석 템플릿
-template = '''
+## (1) 보고서 목차 생성 템플릿
+index_template = '''
+너는 설문조사 결과를 바탕으로 한국어 보고서를 작성하는 AI야.
+
+다음은 네가 수행해야 할 작업이야:
+1) 입력된 설문 정보에는 보고서 제목과 목적이 포함돼 있어.  
+2) 이를 참고해서 해당 보고서 제목과 목적에 맞는 [보고서 목차]를 작성해줘.  
+3) 아래 예시처럼 보고서 제목에 맞는 목차를 항목별로 구성해줘.
+
+[입력된 설문 정보]
+{survey}
+
+[예시]  
+[보고서 제목]  
+Digital Predictions 2018  
+
+[보고서 목차]  
+- Foreword  
+- The digital consumer  
+- Smart(er) phones: smarter applications  
+- The machines are learning  
+- Strap in: connectivity takes off  
+- Augmented Reality bites  
+- The subscription prescription  
+- Rebuilding the supply chain – block by blockchain  
+- Endnotes  
+- Contacts  
+'''
+
+## (2) 목차에 설문 질문 매칭 템플릿
+question_template='''
+1) 입력된 설문 조사 결과 정보에는 설문 조사 질문 내용이 포함돼 있어. 
+2) 입력된 설문 조사 목차에는 보고서의 목차가 있어.
+3) 이를 참고해서 각 설문 조사 질문 내용을 잘 설명해주는 목차에 질문 번호를 주의 사항에 맞춰서 배치해줘.
+4) 주의 사항 : 질문 번호는 모두 매치되어야 하고, 여러 목차에 중복해서 배치되면 안돼. 질문 유형이 "성별", "학년", "전화번호"와 같은 개인 정보를 담은 질문은 배치에서 제외해줘. 
+
+[입력된 설문 조사 결과 정보]
+{survey_json}
+
+[입력된 설문 조사 목차]
+{survey_index}
+'''
+
+## (3) 단일 질문 분석 템플릿
+single_template = '''
 너는 설문 조사 결과에 대한 보고서를 한국어로 작성하는 AI야.
 
 아래는 너가 해야 할 일이야:
@@ -94,7 +106,7 @@ SNS 채널 콘텐츠 만족도는 매우 만족 50.8%(827명), 만족 41.6%(677�
 이는 콘텐츠 기획이나 운영 방향이 단순한 ‘호감’ 수준을 넘어서 사용자 니즈에 정밀하게 부합하고 있을 가능성을 시사합니다.
 '''
 
-## (2) 교차 분석 문항 쌍 추천 템플릿
+## (4) 교차 분석 문항 쌍 추천 템플릿
 cross_prompt_template = '''
 너는 ERG 이론에 따른 대학생의 SNS 사용 동기와 SNS 사용 만족도간의 관계를 분석하고자 하는 AI야.
 
@@ -110,36 +122,108 @@ cross_prompt_template = '''
 (0,2)
 '''
 
-## (3) 교차 분석 결과 해석 템플릿
+## (5) 교차 분석 결과 해석 템플릿
 cross_analy_prompt_template = '''
-아래 교차 분석 결과를 보고, ERG 이론(Existence, Relatedness, Growth)을 바탕으로 SNS 사용 동기와 SNS 사용 만족도 간의 관계를 불필요한 도입 문장은 생략하고, 간단하고 명확하게 해석해줘.  
-구체적인 수치나 비율보다는 전반적인 경향과 관련성 중심으로, 자연스러운 문장으로 정리해줘.
+아래 교차 분석 결과는 질문 3과 질문 7에 대한 응답을 바탕으로 생성된 것이다. ERG 이론(Existence, Relatedness, Growth)을 바탕으로 질문 3(R)과 질문 7(만족도) 사이의 전반적인 경향만 자연스럽고 간결하게 설명해줘.  
+수치 언급은 최소화하고, 전체적인 패턴과 관련성 중심으로 해석해줘.
 
 [교차 분석 질문 및 결과]  
 {cross_result_text}
 '''
 # 4. LLM
-model = ChatOpenAI(model='gpt-4o-mini', temperature=0)
+model = ChatOpenAI(model='gpt-4o-mini', temperature=0, seed=42)
 
 # 5. 분석 파이프라인
 ## 5.1 Langcahin 실행
-### (1) 단일 질문 분석 
-prompt = ChatPromptTemplate.from_template(template)
+### (1) 보고서 목차 생성
+index_prompt = ChatPromptTemplate.from_template(index_template)
 
-def get_analysis(img_idx, survey_json):
-    """이미지 인덱스를 기반으로 LangChain 분석 실행"""
-    
+def get_index(survey_data):
+
     chain = (
         {
-            "survey_result": lambda _: survey_json[img_idx],
+            "survey": lambda _: survey_data,
         }
-        | prompt
+        | index_prompt
         | model
         | StrOutputParser()
     )
     return chain.invoke({})
 
-### (2) 교차 분석 문항 쌍 추천
+survey_index_content = get_index(survey_data)
+
+start_keyword = "[보고서 목차]"
+start_index = survey_index_content.find(start_keyword)
+if start_index != -1:
+    survey_index = survey_index_content[start_index + len(start_keyword):].strip()
+else:
+    print("❌ '[보고서 목차]' 항목을 찾을 수 없습니다.")
+
+
+# 문자열을 적절하게 처리하도록 수정
+def parse_survey_index(content):
+    parsed_index = []
+    lines = content.split("\n")
+    
+    current_title = ""
+    sub_entries = []
+
+    for line in lines:
+        if line.strip() == "":  # 빈 줄은 건너뛰기
+            continue
+
+        indent_level = (len(line) - len(line.lstrip())) // 4  # 4칸씩 들여쓰기를 기준으로
+        line = line.strip()
+
+        if indent_level == 0:
+            if current_title:
+                parsed_index.append((current_title, sub_entries))  # 이전 항목 추가
+            current_title = line
+            sub_entries = []
+        else:
+            sub_entries.append(line)
+
+    if current_title:
+        parsed_index.append((current_title, sub_entries))  # 마지막 항목 추가
+
+    return parsed_index
+
+index_content = parse_survey_index(survey_index)
+
+### (2) 목차에 설문 질문들 매칭
+question_prompt = ChatPromptTemplate.from_template(question_template)
+
+def get_question(survey_json, survey_index):
+
+    chain = (
+        {
+            "survey_json": lambda _: survey_json,
+            "survey_index": lambda _: survey_index,
+        }
+        | question_prompt
+        | model
+        | StrOutputParser()
+    )
+    return chain.invoke({})
+
+matching_result = get_question(survey_json, survey_index)
+
+### (3) 단일 질문 분석 
+single_prompt = ChatPromptTemplate.from_template(single_template)
+
+def get_analysis(img_idx, survey_json):
+    
+    chain = (
+        {
+            "survey_result": lambda _: survey_json[img_idx],
+        }
+        | single_prompt
+        | model
+        | StrOutputParser()
+    )
+    return chain.invoke({})
+
+### (4) 교차 분석 문항 쌍 추천
 cross_prompt = ChatPromptTemplate.from_template(cross_prompt_template)
 
 def get_cross_tab_questions(survey_json):
@@ -158,7 +242,7 @@ def get_cross_tab_questions(survey_json):
     )
     return chain.invoke({})
 
-### (3) 교차 분석 결과 해석
+### (5) 교차 분석 결과 해석
 cross_analy_prompt = ChatPromptTemplate.from_template(cross_analy_prompt_template)
 
 def get_cross_analy_questions(cross_result_text):
@@ -174,7 +258,7 @@ def get_cross_analy_questions(cross_result_text):
 
 
 ## 5.2 해석 결과 받기
-### (1) 단일 문항 해석
+### (3) 단일 문항 해석
 survey_content = []
 
 for idx in range(len(survey_json)):
@@ -184,30 +268,46 @@ for idx in range(len(survey_json)):
     except Exception as e:
         survey_content.append(f"해석 실패: {e}")
 
-### (2) 교차 분석 문항 쌍 추천
+### (4) 교차 분석 문항 쌍 추천
 cross_tab_result = get_cross_tab_questions(survey_json)
 
-### (3) 교차 분석 결과 해석
+### (5) 교차 분석 결과 해석
 cross_analy_result = get_cross_analy_questions(cross_result_text)
 
 # 6. Word 보고서 생성
 doc = Document()
 
 ## 제목
-doc.add_heading("ERG 이론에 따른 대학생의 SNS 사용 동기와 SNS 사용 만족도간의 관계 연구 설문조사 보고서", level=0)
+title = "대학생의 SNS 사용동기가 만족도와 사용시간에 미친 영향 연구– Alderfer의 ERG 이론을 중심으로 -"
+doc.add_heading(title, level=0)
 
 ## 목차
 doc.add_page_break()
 doc.add_heading("목차", level=1)
 doc.add_paragraph("\n")
 
-sections = ["[1] 설문 주제 및 조사 개요", "[2] 단일 질문 분석", "[3] 교차 분석"]
+# sections = ["[1] 설문 주제 및 조사 개요", "[2] 단일 질문 분석", "[3] 교차 분석"]
+# print(survey_index)
 
-for section in sections:
+# for section in survey_index:
+#     para = doc.add_paragraph()
+#     run = para.add_run(section)
+#     run.font.name = '맑은 고딕'
+#     run.font.size = Pt(11)
+
+def add_index_entry(text, indent_level=0): 
     para = doc.add_paragraph()
-    run = para.add_run(section)
+    run = para.add_run("    " * indent_level + text)
     run.font.name = '맑은 고딕'
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), '맑은 고딕')
     run.font.size = Pt(11)
+
+# parsed_index에 따라 문서에 항목 추가
+for entry in index_content:
+    title, subentries = entry
+    add_index_entry(title, indent_level=0)
+    for subentry in subentries:
+        add_index_entry(subentry, indent_level=1)
 
 ## [1] 설문 주제 및 조사 개요
 doc.add_page_break()
@@ -269,7 +369,7 @@ for i, img in enumerate(img_path):
 doc.add_page_break()
 doc.add_heading("[3] 교차 분석", level=1)
 
-cross_img = r"C:\Users\toozi\OneDrive\문서\GitHub\BizLab\img\test_cross\cross_img.png"
+cross_img = os.path.join(cross_img_folder, 'cross_img.png')
 doc.add_picture(cross_img, width=Inches(6)) 
 
 para = doc.add_paragraph()
@@ -282,4 +382,4 @@ doc.add_paragraph("\n")
 ## 저장
 output_name = "ERG 이론 설문조사_보고서.docx"
 doc.save(output_name)
-print(f"✅ Word 저장 완료: {output_name}")
+print(f" Word 저장 완료: {output_name}")
