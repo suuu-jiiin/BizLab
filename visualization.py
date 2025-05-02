@@ -1,153 +1,33 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import json
-import re
-import seaborn as sns
-import pandas as pd
-from wordcloud import WordCloud
 import os
+import textwrap
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+from konlpy.tag import Okt
 
-'''
-<수정할 부분>
-1. 이미지 저장하는 코드 중복 됨 -> 함수화하기
-'''
 
-# 현재 파일의 경로를 기준으로 상대경로 설정
-base_dir = os.path.dirname(os.path.abspath(__file__))
-raw_path = os.path.join(base_dir, 'data', 'survey_data.csv')
-
-# 1. 데이터 로딩
-raw_data = pd.read_csv(raw_path, encoding='utf-8-sig')
-
-## survey 결과 csv 파일 -> json 형태로 변환
-def survey_result(file):
-    # 질문 내용, 질문 유형, 문항 내용 추출 (csv 파일 내에서 1~3행)
-    question_texts = file.columns[1:].tolist()  # 첫 번째 열은 열의 이름이 나와있기에 제외
-    question_types = file.iloc[0][1:].tolist()
-    option_texts = file.iloc[1][1:].tolist()
-
-    # 응답 데이터만 추출
-    response_data = file.iloc[3:].reset_index(drop=True)
-
-    json_data = []
-    question_num=0
-
-    for q_text_raw, q_type, opt_text in zip(question_texts, question_types, option_texts):
-        # 정규표현식을 사용해 질문 번호와 질문 내용 분리
-        match = re.match(r"([\d\-]+)\.\s*(.+)", q_text_raw)
-        if match:
-            #question_num = match.group(1)
-            q_text = match.group(2)
-        else:
-            #question_num = ""
-            q_text = q_text_raw  # 혹시 매칭 안 되면 원본 사용
-
-        entry = {"질문 번호": question_num, "질문 내용": q_text, "질문 유형": q_type}
-        question_num+=1
-
-        # 리커트 척도(1~5) 응답 개수 집계
-        if q_type == '주관식':
-           entry["답변"] = response_data[q_text_raw].dropna().astype(str).tolist()
-           entry["null"] = response_data[q_text_raw].isna().sum()
-
-        elif pd.notna(opt_text) and isinstance(opt_text, str) and opt_text.startswith("[1,2,3,4,5]"):
-            options = [str(x) for x in range(1, 6)]
-            response_counts = {opt: 0 for opt in options}
-
-            for response in response_data[q_text_raw].dropna():
-                response_str = str(response).strip()
-                if response_str in response_counts:
-                    response_counts[response_str] += 1
-
-            entry["답변"] = response_counts
-            entry["null"] = response_data[q_text_raw].isna().sum()
-
-        # 일반 객관식 질문 응답 개수 집계
-        elif pd.notna(opt_text) and isinstance(opt_text, str) and opt_text.startswith("["):
-            # 정규 표현식을 사용하여 따옴표 안의 옵션 값 추출
-            option_list = re.findall(r"'(.*?)'", opt_text)
-            response_counts = {opt: 0 for opt in option_list}
-
-            for response in response_data[q_text_raw].dropna():
-                response_str = str(response).strip()
-                if response_str in response_counts:
-                    response_counts[response_str] += 1
-
-            entry["답변"] = response_counts
-            entry["null"] = response_data[q_text_raw].isna().sum()
-
-        json_data.append(entry)
-
-    return json_data
-
-result_json = survey_result(raw_data)
-
-# json 파일 로컬에 저장
-base_dir = os.path.dirname(os.path.abspath(__file__))
-local = os.path.join(base_dir, 'data')
-with open(local + "\\survey_result.json", "w", encoding="utf-8-sig") as f:
-    json.dump(result_json, f, ensure_ascii=False, indent=4, default=str)
+# 0. 단일 질문 시각화 이미지 저장 함수
+def saveimg(folder_name, fig, question_id): 
+    base_dir = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 위치
+    folder_path = os.path.join(base_dir, 'img', f'{folder_name}')  # 상대경로 설정
     
-# 2. 간소화
-## 1) 원본 CSV 데이터 컬럼명을 질문 번호 형식(예: '1.1', '2.3')으로 간소화
-def simplify_data(survey_data):
-    new_columns=[i for i in range(len(survey_data.columns))]
-    
-    # 새로운 컬럼명을 대입한 DataFrame 반환
-    survey_data.columns = new_columns
-    return survey_data
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+        
+    fig.savefig(f'{folder_path}\\{folder_name}_{question_id:02d}.png')
 
-## 2) JSON 파일 간소화
-'''
-타이틀: 질문 -> 번호화({“서비스에 만족합니까?”:1}) => 이건 질문 번호로 대체 가능
-레이블 -> 번호화 ({“매우 만족”:5, “만족”:4, })
-'''
-
-def simplify_answers(json_data):
-    question_option_mapping = {}  # 문항 번호 대응표 저장할 딕셔너리
-
-    for entry in json_data:
-        if "답변" in entry:
-            original_answers = entry["답변"]
-
-            # '주관식' 또는 리스트형 답변일 경우 간소화 스킵
-            if isinstance(original_answers, list):
-                continue
-
-            keys = list(original_answers.keys())
-
-            # 이미 간소화된 경우는 skip
-            if all(k.strip().isdigit() for k in keys):
-                continue
-
-            # 매핑 생성 및 답변 간소화
-            new_answers = {}
-            mapping = {}
-            for i, option_text in enumerate(keys, start=1):
-                new_key = str(i)
-                new_answers[new_key] = original_answers[option_text]
-                mapping[new_key] = option_text
-
-            entry["답변"] = new_answers
-
-            # 문항 번호에 대응표 저장
-            question_num = entry.get("질문 번호", f"Q{len(question_option_mapping)+1}")
-            question_option_mapping[question_num] = mapping
-
-    return json_data, question_option_mapping
-
-# 3. 차트
-## 1) bar chart
-def bar_plot(json_results, question_id, file_name, design=None):
-    resp_cat=json_results[question_id]['답변'].keys() #response category
-    resp_cnt=json_results[question_id]['답변'].values() #response count
+# 1. bar chart
+def bar_plot(json_results, question_id, folder_name, design='Pastel1'):
+    resp_cat = list(json_results[question_id]['답변'].keys()) #response category
+    resp_cnt = list(json_results[question_id]['답변'].values()) #response count
     title=json_results[question_id]['질문 내용']
 
-    colors = sns.color_palette('Pastel1',len(resp_cat)) ## 색상 지정
-    # https://matplotlib.org/3.1.1/gallery/color/colormap_reference.html  -> 팔레트 종류 선택 가능
+    colors = sns.color_palette(design,len(resp_cat)) ## 색상 지정
 
     fig,ax=plt.subplots(figsize=(8, 6))
-    #fig.set_size_inches(8, 6)
+
     bar_container=ax.bar(resp_cat, resp_cnt, color=colors) #'#457B9D' # '#E76F51'
     ax.set(title=title, ylim=(0,max(resp_cnt)+5))
     if len(title)>=30:
@@ -163,25 +43,21 @@ def bar_plot(json_results, question_id, file_name, design=None):
         
     fig.tight_layout()
     
-    # 이미지 저장    
-    base_dir = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 위치
-    folder_path = os.path.join(base_dir, 'img', f'{file_name}')  # 상대경로 설정
+    saveimg(folder_name, fig, question_id)
     
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        
-    fig.savefig(f'{folder_path}\\{file_name}_{question_id:02d}.png')
+    plt.close(fig)
   
 
-## 2) bar horizontal chart
-def barh_plot(json_results, question_id, file_name, design=None):
-    resp_cat=json_results[question_id]['답변'].keys() #response category
-    resp_cnt=json_results[question_id]['답변'].values() #response count
+#2. bar horizontal chart
+def barh_plot(json_results, question_id, folder_name, design='Pastel1'):
+    resp_cat=list(json_results[question_id]['답변'].keys()) # response category
+    resp_cnt=list(json_results[question_id]['답변'].values()) # response count
+    
     title=json_results[question_id]['질문 내용']
-    colors = sns.color_palette('Pastel1',len(resp_cat)) ## 색상 지정
-    # https://matplotlib.org/3.1.1/gallery/color/colormap_reference.html  -> 팔레트 종류 선택 가능
+    colors = sns.color_palette(design,len(resp_cat)) ## 색상 지정
+
     fig,ax=plt.subplots(figsize=(8, 6))
-    #fig.set_size_inches(8, 6)
+
     bar_container=ax.barh(resp_cat, resp_cnt, color=colors)
     ax.set(title=title)
     if len(title)>=30:
@@ -192,33 +68,75 @@ def barh_plot(json_results, question_id, file_name, design=None):
                                                  'fontweight': 'bold',\
                                                   'color': 'black'}) # fontweight='bold', fontstyle='normal', )
 
-    #bar_label for counts
-    #ax.bar_label(bar_container,fmt='{:,.0f}')
-
     #bar_label for percentage
     percentages = [f'{(count / sum(resp_cnt) * 100):.1f}%' for count in resp_cnt]
     ax.bar_label(bar_container, labels=percentages)
     
     fig.tight_layout()
     
-    # 이미지 저장
-    base_dir = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 위치
-    folder_path = os.path.join(base_dir, 'img', f'{file_name}')  # 상대경로 설정
+    saveimg(folder_name, fig, question_id)
     
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        
-    fig.savefig(f'{folder_path}\\{file_name}_{question_id:02d}.png')
+    plt.close(fig)
   
-## 3) pie chart
-def pie_plot(json_results, question_id,  file_name, design=None):
-    resp_cat=json_results[question_id]['답변'].keys() #response category
-    resp_cnt=json_results[question_id]['답변'].values() #response count
+# 3. Grid bar chart
+def grid_plot(json_results, question_id, folder_name, design='Pastel1'):
+
+    # 데이터 추출
+    answer_dict = json_results[question_id]['답변']  # dict of dict
+    title = json_results[question_id]['질문 내용']
+
+    # dict -> DataFrame
+    df = pd.DataFrame(answer_dict).T.fillna(0)  # <-- TRANSPOSE으로 그리드의 row, column을 각각 x값, 범례로 설정
+    columns = df.columns.tolist()  # 그리드의 행
+    x_labels = df.index.tolist()   # 그리드의 열
+
+    # 색상 팔레트
+    cmap = plt.get_cmap(design)
+    colors = [cmap(i) for i in range(len(columns))]
+    #colors = sns.color_palette(design, len(columns))
+
+    # 시각화
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bar_width = 0.8 / len(columns)
+    x = np.arange(len(x_labels))
+    total_sum = df.values.sum()
+
+    for i, col in enumerate(columns):
+        values = df[col].values
+        bars = ax.bar(x + i * bar_width, values, width=bar_width, label=col, color=colors[i])
+
+        for j, bar in enumerate(bars):
+            count = values[j]
+            percent = (count / total_sum) * 100 if total_sum > 0 else 0
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.2,
+                    f'{percent:.1f}%',
+                    ha='center', va='bottom', fontsize=9)
+
+    # 제목 및 축
+    wrapped_title = "\n".join(textwrap.wrap(title, width=40))
+    ax.set_title(f'<질문{question_id+1}. {wrapped_title}>', fontsize=14, fontweight='bold', color='black')
+    ax.set_xticks(x + bar_width * (len(columns)-1) / 2)
+    ax.set_xticklabels(x_labels)
+    ax.set_ylabel('응답 수')
+    ax.set_ylim(0, df.values.max() + 3)
+
+    # 범례
+    ax.legend(title='시간대', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    fig.tight_layout()
+    
+    # 이미지 저장
+    saveimg(folder_name, fig, question_id)
+    
+    plt.close(fig)
+
+# 4. pie chart
+def pie_plot(json_results, question_id,  folder_name,  design='Pastel1'):
+    resp_cat=list(json_results[question_id]['답변'].keys()) #response category
+    resp_cnt=list(json_results[question_id]['답변'].values()) #response count
     title=json_results[question_id]['질문 내용']
 
-    colors = sns.color_palette('Pastel1',len(resp_cat)) ## 색상 지정
-    # https://matplotlib.org/3.1.1/gallery/color/colormap_reference.html  -> 팔레트 종류 선택 가능
-
+    colors = sns.color_palette(design,len(resp_cat)) ## 색상 지정
 
     explode = [0.1 if i == len(resp_cat)-1  else 0 for i in range(len(resp_cat))]
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -232,46 +150,66 @@ def pie_plot(json_results, question_id,  file_name, design=None):
                                                  'fontweight': 'bold',\
                                                   'color': 'black'}) # fontweight='bold', fontstyle='normal', )
     ax.legend()
-
-    plt.savefig(f'{file_name}_{question_id:02d}.png')
     
     fig.tight_layout()
     
     # 이미지 저장
-    base_dir = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 위치
-    folder_path = os.path.join(base_dir, 'img', f'{file_name}')  # 상대경로 설정
+    saveimg(folder_name, fig, question_id)
     
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        
-    fig.savefig(f'{folder_path}\\{file_name}_{question_id:02d}.png')
+    plt.close(fig)
 
 
-## 4) wordcloud
-def wordcloud_plot(json_results, question_id, file_name, design=None):
-    font_path=  r'C:\Windows\Fonts\malgun.ttf'
-    cloud = WordCloud(width=800, height=600, collocations=False, background_color = 'white',font_path=font_path).generate(" ".join(json_results[question_id]['답변']))
-    plt.figure(figsize=(8, 6))
-    plt.imshow(cloud)
-    title=json_results[question_id]['질문 내용']
-    if len(title)>=30:
-      fontsize=12
-    else:
-      fontsize=14
-    plt.title(f'<질문{question_id+1}. {title}>',ha='center', size=fontsize, weight='bold')
-    plt.axis('off')
-    plt.savefig(f'{file_name}_{question_id:02d}.png')
+# 4. wordcloud
+def merge_compound_words(sentence, compound_words):
+    for word in compound_words:
+        if word in sentence:
+            sentence = sentence.replace(word, f' {word} ')  # 합성어를 분리하여 처리
+    return sentence.strip()
+  
+def extract_nouns_and_verbs_and_remove_stopwords(okt, sentence, stopwords):
+    # 형태소 분석 후 명사와 동사 추출
+    nouns_and_verbs = okt.pos(sentence)  # 형태소 분석 후 품사 정보 포함
+    # 명사와 동사만 필터링, 불용어 제거
+    return [word for word, tag in nouns_and_verbs if (tag in ['Noun', 'Verb']) and word not in stopwords]
+  
+def StopWordsRemoval(short_answers):
+  # 불용어 리스트 (필요에 따라 수정)
+  stop_words = ['은', '는', '이', '가', '을', '를', '의', '과', '와', '에게', '에서', '도', '으로', '로', '뿐', '수', '곳', '할', '것', '이라']
+  # 형태소 분석기
+  okt = Okt()
+  # 단답형 문자열 리스트
+  sentence_list = short_answers
+  # 불용어 제거 후 명사와 동사 추출한 결과
+  cleaned_sentences = [extract_nouns_and_verbs_and_remove_stopwords(okt, sentence, stop_words) for sentence in sentence_list]
+
+  flat_list = [item for sublist in cleaned_sentences for item in sublist]
+  result = ' '.join(flat_list)
+
+  # 결과 출력
+  return result
+
+def wordcloud_plot(json_results, question_id, folder_name, design='white'):
+  font_path=  r'C:\Windows\Fonts\malgun.ttf'
+  
+  result=StopWordsRemoval(json_results[question_id]['답변'])
+  cloud = WordCloud(width=800, height=600, collocations=False, background_color = design,font_path=font_path).generate(result)
+  plt.figure(figsize=(8, 6))
+  plt.imshow(cloud)
+  title=json_results[question_id]['질문 내용']
+  if len(title)>=30:
+    fontsize=12
+  else:
+    fontsize=14
+  plt.title(f'<질문{question_id+1}. {title}>',ha='center', size=fontsize, weight='bold')
+  plt.axis('off')
+  
+  plt.tight_layout()
     
-    plt.tight_layout()
-    
-    # 이미지 저장
-    base_dir = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 위치
-    folder_path = os.path.join(base_dir, 'img', f'{file_name}')  # 상대경로 설정
-    
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        
-    plt.savefig(f'{folder_path}\\{file_name}_{question_id:02d}.png')
+  # 이미지 저장
+  saveimg(folder_name, plt, question_id)
+  
+  plt.close()
+
 
 
 
